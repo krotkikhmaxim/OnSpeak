@@ -1,0 +1,125 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: speakup-postgres
+    environment:
+      POSTGRES_USER: speakup
+      POSTGRES_PASSWORD: speakup
+      POSTGRES_DB: speakup
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./services/matching/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U speakup"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: speakup-redis
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.11.1
+    container_name: speakup-mlflow
+    command: >
+      mlflow server
+      --backend-store-uri postgresql://speakup:speakup@postgres:5432/speakup
+      --default-artifact-root /mlflow/artifacts
+      --host 0.0.0.0
+      --port 5000
+    volumes: [mlflow_artifacts:/mlflow/artifacts]
+    ports: ["5000:5000"]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  airflow:
+    image: apache/airflow:2.8.1-python3.10
+    container_name: speakup-airflow
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://speakup:speakup@postgres:5432/speakup
+      AIRFLOW__CORE__FERNET_KEY: "46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLt0nfdstY="
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__WEBSERVER__SECRET_KEY: "speakup-secret"
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: admin
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+    ports: ["8080:8080"]
+    command: webserver
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  airflow-scheduler:
+    image: apache/airflow:2.8.1-python3.10
+    container_name: speakup-airflow-scheduler
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://speakup:speakup@postgres:5432/speakup
+      AIRFLOW__CORE__FERNET_KEY: "46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLt0nfdstY="
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+    command: scheduler
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  matching-api:
+    build:
+      context: ./services/matching
+      dockerfile: Dockerfile
+    container_name: speakup-matching-api
+    environment:
+      DATABASE_URL: postgresql://speakup:speakup@postgres:5432/speakup
+      REDIS_URL: redis://redis:6379
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MODEL_NAME: speakup-matching
+      MODEL_STAGE: Production
+    ports: ["8000:8000"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  prometheus:
+    image: prom/prometheus:v2.50.1
+    container_name: speakup-prometheus
+    volumes: ["./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml"]
+    ports: ["9090:9090"]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+
+  grafana:
+    image: grafana/grafana:10.3.3
+    container_name: speakup-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes: [grafana_data:/var/lib/grafana]
+    ports: ["3000:3000"]
+    depends_on: [prometheus]
+
+volumes:
+  postgres_data:
+  mlflow_artifacts:
+  airflow_logs:
+  grafana_data:
