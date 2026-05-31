@@ -1,0 +1,77 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# ===== Jupyter Notebooks =====
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+notebooks/.ipynb_checkpoints/
+
+# ===== MLflow =====
+mlruns/
+mlartifacts/
+
+# ===== Airflow =====
+airflow/logs/
+airflow/dags/__pycache__/
+airflow/plugins/__pycache__/
+
+# ===== Данные и модели =====
+*.pkl
+*.joblib
+*.model
+*.bin
+data/raw/
+data/processed/
+
+# ===== Секреты и переменные окружения =====
+.env
+.env.*
+*.env
+!example.env
+secrets/
+credentials/
+*.key
+*.pem
+service-account.json
+
+# ===== Docker =====
+docker-compose.override.yml
+.postgres-data/
+.redis-data/
+
+# ===== Terraform =====
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/.terraform.lock.hcl
+infra/terraform/terraform.tfvars
+
+# ===== IDE =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== Логи =====
+*.log
+logs/
+monitoring/logs/
+
+# ===== CI/CD =====
+.github/workflows/debug/
