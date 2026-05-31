@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: speakup-matching-api
+    runtime: docker
+    dockerfilePath: ./services/matching/Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: MLFLOW_TRACKING_URI
+        value: https://speakup-mlflow.onrender.com
+      - key: MODEL_NAME
+        value: speakup-matching
+      - key: MODEL_STAGE
+        value: Production
