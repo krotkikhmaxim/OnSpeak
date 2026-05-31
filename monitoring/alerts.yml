@@ -1,0 +1,144 @@
+groups:
+  - name: speakup_infrastructure
+    interval: 30s
+    rules:
+
+      # ── Matching API ─────────────────────────────────────────────────────────
+      - alert: MatchingAPIHighLatency
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job="matching-api"}[5m])) by (le)) > 0.7
+        for: 5m
+        labels:
+          severity: critical
+          team: ml-platform
+        annotations:
+          summary: "P95 latency > 700 мс (SLO: ≤500 мс)"
+          description: "Текущий P95: {{ $value | humanizeDuration }}. Проверь БД и Feature Store."
+          runbook: "https://github.com/YOUR_USERNAME/speakup-ml/wiki/runbook-latency"
+
+      - alert: MatchingAPIHighErrorRate
+        expr: sum(rate(http_requests_total{job="matching-api",status=~"5.."}[10m])) / sum(rate(http_requests_total{job="matching-api"}[10m])) > 0.01
+        for: 10m
+        labels:
+          severity: critical
+          team: ml-platform
+        annotations:
+          summary: "Error rate > 1% (SLO: <0.5%)"
+          description: "Текущий error rate: {{ $value | humanizePercentage }}."
+
+      - alert: MatchingAPIDown
+        expr: up{job="matching-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: ml-platform
+        annotations:
+          summary: "Matching API недоступен"
+          description: "Сервис не отвечает более 2 минут. Немедленный rollback."
+
+  - name: speakup_feature_store
+    interval: 30s
+    rules:
+
+      # ── Redis Feature Store ──────────────────────────────────────────────────
+      - alert: RedisHighLatency
+        expr: redis_commands_duration_seconds_total / redis_commands_processed_total > 0.02
+        for: 5m
+        labels:
+          severity: warning
+          team: ml-platform
+        annotations:
+          summary: "Redis P99 latency > 20 мс (SLO: ≤5 мс)"
+          description: "Среднее время команды Redis: {{ $value | humanizeDuration }}."
+
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: ml-platform
+        annotations:
+          summary: "Redis недоступен — Feature Store offline"
+          description: "Matching API перейдёт на fallback (PostgreSQL). Деградация latency."
+
+      # ── PostgreSQL ───────────────────────────────────────────────────────────
+      - alert: PostgresHighCPU
+        expr: rate(process_cpu_seconds_total{job="postgres"}[5m]) * 100 > 85
+        for: 15m
+        labels:
+          severity: warning
+          team: ml-platform
+        annotations:
+          summary: "PostgreSQL CPU > 85% (SLO: <70%)"
+          description: "CPU: {{ $value }}%. Проверь медленные запросы через pg_stat_statements."
+
+  - name: speakup_ml_model
+    interval: 60s
+    rules:
+
+      # ── ML-модель: NDCG@3 ────────────────────────────────────────────────────
+      - alert: ModelNDCGDegraded
+        expr: speakup_model_ndcg_at_3 < 0.65
+        for: 0m
+        labels:
+          severity: critical
+          team: ml-platform
+        annotations:
+          summary: "NDCG@3 < 0.65 — критический порог модели (SLO: ≥0.70)"
+          description: "Текущий NDCG@3: {{ $value }}. Немедленно запусти retrain DAG в Airflow."
+          runbook: "https://github.com/YOUR_USERNAME/speakup-ml/wiki/runbook-model-degradation"
+
+      - alert: ModelNDCGWarning
+        expr: speakup_model_ndcg_at_3 < 0.70
+        for: 30m
+        labels:
+          severity: warning
+          team: ml-platform
+        annotations:
+          summary: "NDCG@3 < 0.70 — SLO нарушен"
+          description: "NDCG@3: {{ $value }}. Запланировать переобучение в течение 4 часов."
+
+      # ── Prediction drift ─────────────────────────────────────────────────────
+      - alert: PredictionDrift
+        expr: speakup_model_psi_score > 0.20
+        for: 0m
+        labels:
+          severity: critical
+          team: ml-platform
+        annotations:
+          summary: "Data drift PSI > 0.20 — требуется срочное переобучение"
+          description: "PSI: {{ $value }}. Признак: входные фичи существенно изменились."
+
+      # ── Rebook rate (бизнес SLO) ─────────────────────────────────────────────
+      - alert: RebookRateLow
+        expr: speakup_business_rebook_rate_7d < 0.25
+        for: 24h
+        labels:
+          severity: warning
+          team: product
+        annotations:
+          summary: "Rebook rate < 25% за 7 дней (SLO: ≥25% к мес.3)"
+          description: "Текущий rebook rate: {{ $value | humanizePercentage }}. Анализ matching quality."
+
+  - name: speakup_infrastructure_resources
+    interval: 60s
+    rules:
+
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.90
+        for: 10m
+        labels:
+          severity: critical
+          team: ml-platform
+        annotations:
+          summary: "Memory > 90% (SLO: <80%)"
+          description: "Нода: {{ $labels.instance }}. Memory: {{ $value | humanizePercentage }}."
+
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.15
+        for: 5m
+        labels:
+          severity: warning
+          team: ml-platform
+        annotations:
+          summary: "Свободного диска < 15%"
+          description: "Доступно: {{ $value | humanizePercentage }} на {{ $labels.instance }}."
